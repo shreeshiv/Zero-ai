@@ -12,6 +12,5 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# Run API
-CMD ["python", "api.py"]
-
+# Run with uvicorn (Railway sets PORT env var)
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
