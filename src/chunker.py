@@ -1,5 +1,6 @@
 """
 Chunk the extracted text into semantic pieces for embedding.
+Chunks span across pages for better context.
 """
 import re
 import json
@@ -10,13 +11,18 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 PAGES_PATH = DATA_DIR / "title26_pages.json"
 CHUNKS_PATH = DATA_DIR / "chunks.json"
 
+# Config
+CHUNK_SIZE = 4000
+OVERLAP = 200
+
 
 @dataclass
 class TaxChunk:
     """A chunk of tax code text with metadata."""
     id: str
     text: str
-    page_number: int
+    start_page: int
+    end_page: int
     section: str | None = None
     
     def to_dict(self) -> dict:
@@ -28,45 +34,12 @@ SECTION_PATTERN = re.compile(r'§\s*(\d+[A-Za-z]?(?:\.\d+)?)')
 SEC_HEADER_PATTERN = re.compile(r'SEC\.\s*(\d+[A-Za-z]?)\.\s*([A-Z][A-Z\s,\-]+?)\.?\n', re.MULTILINE)
 
 
-def chunk_text(text: str, chunk_size: int = 4000, overlap: int = 200) -> list[str]:
-    """Split text into overlapping chunks, breaking at sentence boundaries."""
-    if len(text) <= chunk_size:
-        return [text.strip()] if text.strip() else []
-    
-    chunks = []
-    start = 0
-    
-    while start < len(text):
-        end = start + chunk_size
-        
-        if end < len(text):
-            # Try to break at paragraph
-            para_break = text.rfind("\n\n", start + chunk_size // 2, end)
-            if para_break > start:
-                end = para_break
-            else:
-                # Try sentence break
-                sentence_break = text.rfind(". ", start + chunk_size // 2, end)
-                if sentence_break > start:
-                    end = sentence_break + 1
-        
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        
-        start = end - overlap if end < len(text) else len(text)
-    
-    return chunks
-
-
 def find_section(text: str) -> str | None:
     """Extract section number from text."""
-    # Look for SEC. X. header first
     match = SEC_HEADER_PATTERN.search(text)
     if match:
         return f"§{match.group(1)}"
     
-    # Fall back to § symbol
     match = SECTION_PATTERN.search(text)
     if match:
         return f"§{match.group(1)}"
@@ -74,8 +47,8 @@ def find_section(text: str) -> str | None:
     return None
 
 
-def create_chunks(chunk_size: int = 4000, overlap: int = 200) -> list[TaxChunk]:
-    """Load pages and create chunks."""
+def create_chunks(chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) -> list[TaxChunk]:
+    """Combine all pages and create chunks that span across pages."""
     
     if not PAGES_PATH.exists():
         raise FileNotFoundError(f"Run extract.py first: {PAGES_PATH}")
@@ -83,38 +56,68 @@ def create_chunks(chunk_size: int = 4000, overlap: int = 200) -> list[TaxChunk]:
     with open(PAGES_PATH, "r", encoding="utf-8") as f:
         pages = json.load(f)
     
-    print(f"📄 Processing {len(pages)} pages...")
+    print(f"📄 Combining {len(pages)} pages...")
     
-    all_chunks = []
-    chunk_id = 0
-    current_section = None
+    # Build combined text with page markers
+    # Format: text with embedded markers like <PAGE:123>
+    combined_text = ""
+    page_positions = []  # List of (position, page_number)
     
     for page_data in pages:
         page_num = page_data["page"]
         page_text = page_data["text"]
         
-        # Check for section header on this page
-        section = find_section(page_text)
-        if section:
-            current_section = section
+        if page_text.strip():
+            page_positions.append((len(combined_text), page_num))
+            combined_text += page_text + "\n"
+    
+    print(f"   Combined text: {len(combined_text):,} characters")
+    
+    # Now chunk the combined text
+    all_chunks = []
+    chunk_id = 0
+    start = 0
+    
+    while start < len(combined_text):
+        end = min(start + chunk_size, len(combined_text))
         
-        # Chunk the page
-        page_chunks = chunk_text(page_text, chunk_size=chunk_size, overlap=overlap)
+        # Try to break at paragraph or sentence boundary
+        if end < len(combined_text):
+            para_break = combined_text.rfind("\n\n", start + chunk_size // 2, end)
+            if para_break > start:
+                end = para_break
+            else:
+                sentence_break = combined_text.rfind(". ", start + chunk_size // 2, end)
+                if sentence_break > start:
+                    end = sentence_break + 1
         
-        for chunk_text_content in page_chunks:
-            if len(chunk_text_content) < 50:  # Skip tiny chunks
-                continue
+        chunk_text = combined_text[start:end].strip()
+        
+        if len(chunk_text) >= 100:  # Skip tiny chunks
+            # Find which pages this chunk spans
+            start_page = 1
+            end_page = 1
             
-            # Try to find section in chunk itself
-            chunk_section = find_section(chunk_text_content) or current_section
+            for pos, page_num in page_positions:
+                if pos <= start:
+                    start_page = page_num
+                if pos <= end:
+                    end_page = page_num
+            
+            # Find section in chunk
+            section = find_section(chunk_text)
             
             all_chunks.append(TaxChunk(
                 id=f"chunk_{chunk_id}",
-                text=chunk_text_content,
-                page_number=page_num,
-                section=chunk_section,
+                text=chunk_text,
+                start_page=start_page,
+                end_page=end_page,
+                section=section,
             ))
             chunk_id += 1
+        
+        # Move forward with overlap
+        start = end - overlap if end < len(combined_text) else len(combined_text)
     
     print(f"✓ Created {len(all_chunks)} chunks")
     
@@ -126,7 +129,9 @@ def create_chunks(chunk_size: int = 4000, overlap: int = 200) -> list[TaxChunk]:
     
     # Stats
     sections = set(c.section for c in all_chunks if c.section)
-    print(f"   Unique sections found: {len(sections)}")
+    avg_size = sum(len(c.text) for c in all_chunks) / len(all_chunks) if all_chunks else 0
+    print(f"   Unique sections: {len(sections)}")
+    print(f"   Avg chunk size: {avg_size:.0f} chars")
     
     return all_chunks
 
@@ -146,6 +151,6 @@ if __name__ == "__main__":
     # Show sample
     print("\n--- Sample Chunks ---")
     for c in chunks[:3]:
-        print(f"\n[{c.id}] Page {c.page_number} | {c.section}")
-        print(c.text[:200] + "...")
-
+        print(f"\n[{c.id}] Pages {c.start_page}-{c.end_page} | {c.section}")
+        print(f"Length: {len(c.text)} chars")
+        print(c.text[:300] + "...")

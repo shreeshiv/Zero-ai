@@ -155,7 +155,8 @@ class TaxCodeIndex:
             texts = [c["text"] for c in batch]
             ids = [c["id"] for c in batch]
             metadatas = [{
-                "page_number": c["page_number"],
+                "start_page": c.get("start_page") or c.get("page_number", 1),
+                "end_page": c.get("end_page") or c.get("page_number", 1),
                 "section": c.get("section") or "",
             } for c in batch]
             
@@ -199,10 +200,12 @@ class TaxCodeIndex:
         
         output = []
         for i in range(len(results["ids"][0])):
+            meta = results["metadatas"][0][i]
             output.append({
                 "text": results["documents"][0][i],
-                "page_number": results["metadatas"][0][i]["page_number"],
-                "section": results["metadatas"][0][i]["section"] or None,
+                "start_page": meta.get("start_page", 1),
+                "end_page": meta.get("end_page", 1),
+                "section": meta.get("section") or None,
                 "score": 1 - results["distances"][0][i],
             })
         
@@ -239,5 +242,5 @@ if __name__ == "__main__":
     print("Testing: 'SALT deduction limit'")
     print("="*60)
     for r in index.search("SALT deduction limit", k=3):
-        print(f"\n[Page {r['page_number']}] {r['section']} (score: {r['score']:.3f})")
-        print(r['text'][:200] + "...")
+        print(f"\n[Pages {r['start_page']}-{r['end_page']}] {r['section']} (score: {r['score']:.3f})")
+        print(r['text'][:300] + "...")

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-Entry point to run the Tax Code Search MCP Server.
+Tax Code Search MCP Server
 """
-from src.server import main
+from src.server import mcp
 
 if __name__ == "__main__":
-    main()
-
+    mcp.run()
