@@ -1,0 +1,26 @@
+[project]
+name = "zero-ai-tax-search"
+version = "0.1.0"
+description = "MCP Server for semantic search over US Tax Code (Title 26)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "pymupdf>=1.24.0",
+    "voyageai>=0.2.0",
+    "chromadb>=0.4.0",
+    "tqdm>=4.65.0",
+    "httpx>=0.25.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+tax-search-server = "src.server:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
