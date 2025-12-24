@@ -75,21 +75,7 @@ Add to your `.cursor/mcp.json`:
 }
 ```
 
-Then ask Cursor: *"Search the tax code for SALT deduction limits"*
-
-## Local Development
-
-```bash
-# Install
-pip install -r requirements.txt
-
-# Set environment variables
-cp .env.example .env
-# Edit .env with your keys
-
-# Run
-python main.py
-```
+Then ask Cursor: _"Search the tax code for SALT deduction limits"_
 
 ## Environment Variables
 
@@ -98,7 +84,6 @@ GEMINI_API_KEY=your-gemini-key
 CHROMA_API_KEY=your-chroma-key
 CHROMA_TENANT=your-tenant
 CHROMA_DATABASE=your-database
-API_KEY=your-api-key
 ```
 
 ## Tech Stack
@@ -107,7 +92,3 @@ API_KEY=your-api-key
 - **Vector DB**: Chroma Cloud
 - **API**: FastAPI
 - **Data**: Title 26 - Internal Revenue Code
-
-## License
-
-MIT
