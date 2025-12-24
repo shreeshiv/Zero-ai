@@ -59,6 +59,23 @@ python run_server.py
 | `/search?q=...&k=5` | GET    | Search tax code    |
 | `/search`           | POST   | Search (JSON body) |
 | `/stats`            | GET    | Index statistics   |
+| `/mcp`              | GET    | MCP SSE endpoint   |
+
+## MCP Configuration (Cursor)
+
+Add to your `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "tax-code": {
+      "url": "https://zero-ai-production-03a0.up.railway.app/mcp"
+    }
+  }
+}
+```
+
+Then ask Cursor: *"Search the tax code for SALT deduction limits"*
 
 ## Local Development
 
