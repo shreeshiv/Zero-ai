@@ -10,11 +10,7 @@ https://zero-ai-production-03a0.up.railway.app
 
 ## Purpose
 
-LLMs have knowledge cutoffs that miss recent tax law changes. This server provides real-time access to the latest tax code, including:
-
-- 2025 SALT deduction changes
-- Senior citizen deduction updates
-- And all other provisions in Title 26
+LLMs have knowledge cutoffs that miss recent tax law changes. This server provides real-time access to the latest tax code and general search query
 
 ## Quick Start
 
