@@ -5,12 +5,10 @@ Deploy anywhere, call from anywhere.
 import os
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from dotenv import load_dotenv
 
 load_dotenv()
-
-from src.indexer import get_index
 
 # API Key auth
 API_KEY = os.getenv("API_KEY", "zero-tax-api-key-2024")
@@ -32,12 +30,22 @@ app.add_middleware(
 )
 
 
+# Lazy load indexer
+_index = None
+
+def get_index():
+    global _index
+    if _index is None:
+        from src.indexer import TaxCodeIndex
+        _index = TaxCodeIndex()
+    return _index
+
+
 # Auth dependency
 async def verify_api_key(authorization: str = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     
-    # Support "Bearer <key>" or just "<key>"
     key = authorization.replace("Bearer ", "").strip()
     
     if key != API_KEY:
@@ -48,16 +56,11 @@ async def verify_api_key(authorization: str = Header(None)):
 
 # Request/Response models
 class SearchRequest(BaseModel):
+    model_config = ConfigDict(json_schema_extra={
+        "example": {"query": "SALT deduction limit", "k": 5}
+    })
     query: str
     k: int = 5
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "query": "SALT deduction limit",
-                "k": 5
-            }
-        }
 
 
 class SearchResult(BaseModel):
@@ -93,6 +96,7 @@ async def root():
 
 @app.get("/health")
 async def health():
+    """Health check - returns immediately without loading index."""
     return {"status": "healthy"}
 
 
@@ -100,9 +104,6 @@ async def health():
 async def search(request: SearchRequest, api_key: str = Depends(verify_api_key)):
     """
     Search the US Tax Code (Title 26) for relevant passages.
-    
-    - **query**: Natural language search query
-    - **k**: Number of results to return (1-20, default 5)
     """
     k = max(1, min(request.k, 20))
     
@@ -120,11 +121,7 @@ async def search(request: SearchRequest, api_key: str = Depends(verify_api_key))
 
 
 @app.get("/search")
-async def search_get(
-    q: str,
-    k: int = 5,
-    api_key: str = Depends(verify_api_key)
-):
+async def search_get(q: str, k: int = 5, api_key: str = Depends(verify_api_key)):
     """GET version of search for easy testing."""
     return await search(SearchRequest(query=q, k=k), api_key)
 
@@ -143,4 +140,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
