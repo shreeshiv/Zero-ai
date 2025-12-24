@@ -28,7 +28,7 @@ SECTION_PATTERN = re.compile(r'§\s*(\d+[A-Za-z]?(?:\.\d+)?)')
 SEC_HEADER_PATTERN = re.compile(r'SEC\.\s*(\d+[A-Za-z]?)\.\s*([A-Z][A-Z\s,\-]+?)\.?\n', re.MULTILINE)
 
 
-def chunk_text(text: str, chunk_size: int = 1500, overlap: int = 200) -> list[str]:
+def chunk_text(text: str, chunk_size: int = 4000, overlap: int = 200) -> list[str]:
     """Split text into overlapping chunks, breaking at sentence boundaries."""
     if len(text) <= chunk_size:
         return [text.strip()] if text.strip() else []
@@ -74,7 +74,7 @@ def find_section(text: str) -> str | None:
     return None
 
 
-def create_chunks(chunk_size: int = 1500, overlap: int = 200) -> list[TaxChunk]:
+def create_chunks(chunk_size: int = 4000, overlap: int = 200) -> list[TaxChunk]:
     """Load pages and create chunks."""
     
     if not PAGES_PATH.exists():

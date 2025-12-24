@@ -1,25 +1,27 @@
 """
 Tax Code Search - Full Cloud Edition
-Voyage AI (embeddings) + Chroma Cloud (vector DB)
+Google Gemini (embeddings) + Chroma Cloud (vector DB)
 """
 import os
 import json
+import time
 import chromadb
-import voyageai
+import google.generativeai as genai
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Config
-VOYAGE_MODEL = "voyage-3-lite"
+GEMINI_MODEL = "models/text-embedding-004"
 COLLECTION_NAME = "tax_code"
+MAX_CHUNKS = 1000  # Limit for initial indexing
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 CHUNKS_PATH = DATA_DIR / "chunks.json"
 
 
-def load_chunks() -> list[dict]:
+def load_chunks(limit: int | None = None) -> list[dict]:
     """Load chunks from JSON file."""
     if not CHUNKS_PATH.exists():
         raise FileNotFoundError(
@@ -29,25 +31,30 @@ def load_chunks() -> list[dict]:
         )
     
     with open(CHUNKS_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+        chunks = json.load(f)
+    
+    if limit:
+        chunks = chunks[:limit]
+    
+    return chunks
 
 
 class TaxCodeIndex:
-    """Tax code search - Full Cloud with Voyage AI + Chroma Cloud."""
+    """Tax code search - Full Cloud with Gemini + Chroma Cloud."""
     
     def __init__(self):
         self.chroma_client: chromadb.CloudClient | None = None
-        self.voyage_client: voyageai.Client | None = None
         self.collection = None
+        self._gemini_configured = False
     
-    def _get_voyage_client(self) -> voyageai.Client:
-        """Get Voyage AI client."""
-        if self.voyage_client is None:
-            api_key = os.getenv("VOYAGE_API_KEY")
+    def _configure_gemini(self):
+        """Configure Gemini API."""
+        if not self._gemini_configured:
+            api_key = os.getenv("GEMINI_API_KEY")
             if not api_key or "your-" in api_key:
-                raise ValueError("Set VOYAGE_API_KEY in .env")
-            self.voyage_client = voyageai.Client(api_key=api_key)
-        return self.voyage_client
+                raise ValueError("Set GEMINI_API_KEY in .env")
+            genai.configure(api_key=api_key)
+            self._gemini_configured = True
     
     def _get_chroma_client(self) -> chromadb.CloudClient:
         """Get Chroma Cloud client."""
@@ -80,13 +87,45 @@ class TaxCodeIndex:
             )
         return self.collection
     
-    def _embed(self, texts: list[str], input_type: str = "document") -> list[list[float]]:
-        """Get embeddings from Voyage AI."""
-        client = self._get_voyage_client()
-        result = client.embed(texts, model=VOYAGE_MODEL, input_type=input_type)
-        return result.embeddings
+    def _embed(self, texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
+        """Get embeddings from Gemini."""
+        self._configure_gemini()
+        
+        embeddings = []
+        for text in texts:
+            result = genai.embed_content(
+                model=GEMINI_MODEL,
+                content=text,
+                task_type=task_type,
+            )
+            embeddings.append(result['embedding'])
+        
+        return embeddings
     
-    def build(self, force: bool = False, batch_size: int = 100):
+    def _embed_batch(self, texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT", batch_size: int = 20) -> list[list[float]]:
+        """Get embeddings in batches with rate limiting."""
+        self._configure_gemini()
+        
+        all_embeddings = []
+        
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            
+            for text in batch:
+                result = genai.embed_content(
+                    model=GEMINI_MODEL,
+                    content=text,
+                    task_type=task_type,
+                )
+                all_embeddings.append(result['embedding'])
+            
+            # Small delay to respect rate limits
+            if i + batch_size < len(texts):
+                time.sleep(0.1)
+        
+        return all_embeddings
+    
+    def build(self, force: bool = False, batch_size: int = 50, max_chunks: int = MAX_CHUNKS):
         """Build the search index in Chroma Cloud."""
         collection = self._get_collection()
         
@@ -102,11 +141,11 @@ class TaxCodeIndex:
                 collection.delete(ids=ids)
             print("🗑 Cleared existing data")
         
-        # Load chunks from JSON
-        chunks = load_chunks()
+        # Load chunks from JSON (limited)
+        chunks = load_chunks(limit=max_chunks)
         
         print(f"🚀 Indexing {len(chunks)} chunks...")
-        print(f"   Voyage AI: {VOYAGE_MODEL}")
+        print(f"   Gemini: {GEMINI_MODEL}")
         print(f"   Chroma Cloud: ✓")
         
         # Process in batches
@@ -120,8 +159,8 @@ class TaxCodeIndex:
                 "section": c.get("section") or "",
             } for c in batch]
             
-            # Get embeddings from Voyage
-            embeddings = self._embed(texts, input_type="document")
+            # Get embeddings from Gemini
+            embeddings = self._embed_batch(texts)
             
             # Add to Chroma Cloud
             collection.add(
@@ -142,8 +181,14 @@ class TaxCodeIndex:
         if collection.count() == 0:
             raise ValueError("Index is empty. Run: python -m src.indexer")
         
-        # Get query embedding from Voyage
-        query_embedding = self._embed([query], input_type="query")[0]
+        # Get query embedding from Gemini
+        self._configure_gemini()
+        result = genai.embed_content(
+            model=GEMINI_MODEL,
+            content=query,
+            task_type="RETRIEVAL_QUERY",
+        )
+        query_embedding = result['embedding']
         
         # Search Chroma Cloud
         results = collection.query(
@@ -170,7 +215,7 @@ class TaxCodeIndex:
             "total_chunks": collection.count(),
             "collection_name": COLLECTION_NAME,
             "cloud": "Chroma Cloud",
-            "embeddings": f"Voyage AI ({VOYAGE_MODEL})",
+            "embeddings": f"Google Gemini ({GEMINI_MODEL})",
         }
 
 
@@ -188,7 +233,7 @@ def get_index() -> TaxCodeIndex:
 
 if __name__ == "__main__":
     index = TaxCodeIndex()
-    index.build(force=True)
+    index.build(force=True, max_chunks=1000)
     
     print("\n" + "="*60)
     print("Testing: 'SALT deduction limit'")
